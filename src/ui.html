@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Squircle Frame</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 12px;
+      color: var(--figma-color-text, #1a1a1a);
+      background: var(--figma-color-bg, #ffffff);
+      padding: 12px;
+    }
+    h3 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--figma-color-text-secondary, #888); margin-bottom: 8px; }
+    section { margin-bottom: 16px; }
+    .status-badge { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+    .badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      background: var(--figma-color-bg-secondary, #f5f5f5);
+      color: var(--figma-color-text, #333);
+    }
+    .badge.managed { background: #e6f4ea; color: #1a7d35; }
+    .badge.unsupported { background: #fce8e6; color: #c0392b; }
+    .empty-hint { color: var(--figma-color-text-secondary, #999); font-size: 12px; padding: 8px 0; }
+    .row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .row label { flex: 1; }
+    .row input[type="number"], .row select, .row input[type="text"] {
+      width: 80px;
+      padding: 4px 6px;
+      border: 1px solid var(--figma-color-border, #ddd);
+      border-radius: 4px;
+      background: var(--figma-color-bg, #fff);
+      color: var(--figma-color-text, #1a1a1a);
+      font-size: 12px;
+    }
+    .row input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; }
+    .corner-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      margin-bottom: 6px;
+    }
+    .corner-grid input { width: 100%; padding: 4px 6px; border: 1px solid var(--figma-color-border, #ddd); border-radius: 4px; background: var(--figma-color-bg, #fff); color: var(--figma-color-text, #1a1a1a); font-size: 12px; }
+    .tab-row { display: flex; gap: 4px; margin-bottom: 12px; }
+    .tab {
+      flex: 1; padding: 5px; border: 1px solid var(--figma-color-border, #ddd);
+      border-radius: 4px; background: none; cursor: pointer; font-size: 11px;
+      color: var(--figma-color-text-secondary, #666);
+    }
+    .tab.active {
+      background: var(--figma-color-bg-brand, #0d99ff);
+      color: #fff; border-color: transparent;
+    }
+    button.action {
+      width: 100%; padding: 7px; margin-bottom: 6px;
+      border: 1px solid var(--figma-color-border, #ddd);
+      border-radius: 6px; background: var(--figma-color-bg, #fff);
+      color: var(--figma-color-text, #1a1a1a);
+      cursor: pointer; font-size: 12px; font-weight: 500;
+    }
+    button.action.primary {
+      background: var(--figma-color-bg-brand, #0d99ff);
+      color: #fff; border-color: transparent;
+    }
+    button.action.danger { border-color: #e74c3c; color: #e74c3c; }
+    button.action:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status-msg {
+      padding: 6px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      margin-bottom: 8px;
+    }
+    .status-msg.success { background: #e6f4ea; color: #1a7d35; }
+    .status-msg.error { background: #fce8e6; color: #c0392b; }
+    .status-msg.hidden { display: none; }
+    .live-indicator { font-size: 10px; color: var(--figma-color-text-secondary, #888); margin-top: 4px; }
+    .preset-row { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+    .preset-btn {
+      padding: 4px 8px;
+      border: 1px solid var(--figma-color-border, #ddd);
+      border-radius: 4px;
+      background: none;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .preset-btn.active { background: var(--figma-color-bg-brand, #0d99ff); color: #fff; border-color: transparent; }
+    details summary { cursor: pointer; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--figma-color-text-secondary, #888); margin-bottom: 6px; }
+    details[open] summary { margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+
+<!-- Selection Status -->
+<section id="status-section">
+  <h3>Selection</h3>
+  <div class="status-badge" id="status-badges">
+    <span class="badge" id="badge-supported">0 frames</span>
+    <span class="badge managed" id="badge-managed" style="display:none">0 managed</span>
+    <span class="badge unsupported" id="badge-unsupported" style="display:none">0 unsupported</span>
+  </div>
+  <p class="empty-hint" id="empty-hint">Select one or more frames to begin.</p>
+</section>
+
+<!-- Action result message -->
+<div class="status-msg hidden" id="status-msg"></div>
+
+<!-- Model / Preset Tabs -->
+<section>
+  <h3>Mode</h3>
+  <div class="tab-row">
+    <button class="tab" id="tab-fixed" onclick="selectModel('fixed')">Fixed</button>
+    <button class="tab" id="tab-adaptive" onclick="selectModel('adaptive')">Adaptive</button>
+    <button class="tab active" id="tab-smartAdaptive" onclick="selectModel('smartAdaptive')">Smart</button>
+  </div>
+  <div class="preset-row" id="preset-row">
+    <button class="preset-btn" onclick="applyPreset('Subtle')">Subtle</button>
+    <button class="preset-btn active" onclick="applyPreset('Balanced')">Balanced</button>
+    <button class="preset-btn" onclick="applyPreset('Bold')">Bold</button>
+    <button class="preset-btn" onclick="applyPreset('Pill Adaptive')">Pill Adaptive</button>
+  </div>
+</section>
+
+<!-- Settings Panels -->
+<section>
+  <h3>Settings</h3>
+
+  <!-- Fixed Settings -->
+  <div id="panel-fixed" style="display:none">
+    <div class="row">
+      <label>Linked corners</label>
+      <input type="checkbox" id="fixed-linked" checked onchange="onFixedLinkedChange()" />
+    </div>
+    <div class="row">
+      <label>Radius mode</label>
+      <select id="fixed-radius-mode" onchange="onRadiusModeChange()">
+        <option value="absolute">Absolute</option>
+        <option value="proportional">Proportional</option>
+      </select>
+    </div>
+    <div id="fixed-abs-row" class="row">
+      <label>Base radius</label>
+      <input type="number" id="fixed-base-radius" value="24" min="0" step="1" />
+    </div>
+    <div id="fixed-corners-grid" style="display:none">
+      <label style="display:block;margin-bottom:4px;font-size:11px;">Corner radii (TL TR BR BL)</label>
+      <div class="corner-grid">
+        <input type="number" id="fixed-r0" value="24" min="0" step="1" placeholder="TL" />
+        <input type="number" id="fixed-r1" value="24" min="0" step="1" placeholder="TR" />
+        <input type="number" id="fixed-r3" value="24" min="0" step="1" placeholder="BL" />
+        <input type="number" id="fixed-r2" value="24" min="0" step="1" placeholder="BR" />
+      </div>
+    </div>
+    <div id="fixed-prop-row" class="row" style="display:none">
+      <label>Radius factor</label>
+      <input type="number" id="fixed-factor" value="0.12" min="0" max="1" step="0.01" />
+    </div>
+    <div class="row">
+      <label>Smoothing</label>
+      <input type="number" id="fixed-smoothing" value="0.6" min="0" max="0.95" step="0.01" />
+    </div>
+  </div>
+
+  <!-- Adaptive Settings -->
+  <div id="panel-adaptive" style="display:none">
+    <div class="row">
+      <label>Radius scale</label>
+      <input type="number" id="adap-scale" value="0.12" min="0" step="0.01" />
+    </div>
+    <div class="row">
+      <label>Target smoothing</label>
+      <input type="number" id="adap-smoothing" value="0.6" min="0" max="0.95" step="0.01" />
+    </div>
+    <div class="row">
+      <label>Aspect sensitivity</label>
+      <input type="number" id="adap-aspect" value="0.15" min="0" step="0.01" />
+    </div>
+    <div class="row">
+      <label>Size basis</label>
+      <select id="adap-basis">
+        <option value="shortSide">Short side</option>
+        <option value="mean">Mean</option>
+        <option value="width">Width</option>
+        <option value="height">Height</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Smart Adaptive Settings -->
+  <div id="panel-smartAdaptive">
+    <div class="row">
+      <label>Linked corners</label>
+      <input type="checkbox" id="smart-linked" checked onchange="onSmartLinkedChange()" />
+    </div>
+    <div id="smart-single-row" class="row">
+      <label>Design radius</label>
+      <input type="number" id="smart-radius" value="24" min="0" step="1" />
+    </div>
+    <div id="smart-corners-grid" style="display:none">
+      <label style="display:block;margin-bottom:4px;font-size:11px;">Corner radii (TL TR BR BL)</label>
+      <div class="corner-grid">
+        <input type="number" id="smart-r0" value="24" min="0" step="1" placeholder="TL" />
+        <input type="number" id="smart-r1" value="24" min="0" step="1" placeholder="TR" />
+        <input type="number" id="smart-r3" value="24" min="0" step="1" placeholder="BL" />
+        <input type="number" id="smart-r2" value="24" min="0" step="1" placeholder="BR" />
+      </div>
+    </div>
+    <div class="row">
+      <label>Design smoothing</label>
+      <input type="number" id="smart-smoothing" value="0.6" min="0" max="0.95" step="0.01" />
+    </div>
+    <div class="row">
+      <label>Reference size</label>
+      <input type="number" id="smart-ref-size" value="200" min="1" step="1" />
+    </div>
+    <div class="row">
+      <label>Response strength</label>
+      <input type="number" id="smart-strength" value="0.35" min="0" max="2" step="0.01" />
+    </div>
+    <div class="row">
+      <label>Aspect sensitivity</label>
+      <input type="number" id="smart-aspect" value="0.15" min="0" step="0.01" />
+    </div>
+  </div>
+</section>
+
+<!-- Advanced Constraints -->
+<details>
+  <summary>Advanced Constraints</summary>
+  <div class="row"><label>Min radius</label><input type="number" id="c-min-r" value="2" min="0" step="1" /></div>
+  <div class="row"><label>Max radius</label><input type="number" id="c-max-r" value="999" min="0" step="1" /></div>
+  <div class="row"><label>Min smoothing</label><input type="number" id="c-min-s" value="0" min="0" max="0.95" step="0.01" /></div>
+  <div class="row"><label>Max smoothing</label><input type="number" id="c-max-s" value="0.95" min="0" max="0.95" step="0.01" /></div>
+  <div class="row"><label>Min frame size</label><input type="number" id="c-min-f" value="16" min="0" step="1" /></div>
+  <div class="row"><label>Aspect guard</label><input type="number" id="c-aspect" value="6" min="1" step="0.1" /></div>
+</details>
+
+<!-- Actions -->
+<section style="margin-top:16px">
+  <h3>Actions</h3>
+  <button class="action primary" id="btn-apply" onclick="doApply()">Apply to Selection</button>
+  <button class="action" id="btn-refresh-sel" onclick="doRefreshSelection()">Refresh Managed in Selection</button>
+  <button class="action" id="btn-refresh-page" onclick="doRefreshPage()">Refresh Managed on Page</button>
+  <button class="action danger" id="btn-remove" onclick="doRemove()">Remove Management</button>
+</section>
+
+<!-- Live status -->
+<div class="live-indicator" id="live-indicator">Live: monitoring 0 frames</div>
+
+</body>
+</html>

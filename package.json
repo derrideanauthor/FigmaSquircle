@@ -1,0 +1,23 @@
+{
+  "name": "squircle-frame",
+  "version": "1.0.0",
+  "description": "Figma plugin that applies persistent squircle corner behaviour to frames",
+  "scripts": {
+    "build": "webpack --mode production",
+    "build:dev": "webpack --mode development",
+    "watch": "webpack --mode development --watch",
+    "test": "jest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.95.0",
+    "@types/jest": "^29.5.12",
+    "html-webpack-plugin": "^5.6.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.4",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.4.5",
+    "webpack": "^5.91.0",
+    "webpack-cli": "^5.1.4"
+  }
+}
