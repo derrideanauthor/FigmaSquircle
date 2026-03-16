@@ -279,15 +279,16 @@ window.onmessage = (event: MessageEvent) => {
 };
 
 // Make functions available globally for inline HTML onclick handlers
-(window as unknown as Record<string, unknown>)['selectModel'] = selectModel;
-(window as unknown as Record<string, unknown>)['applyPreset'] = applyPreset;
-(window as unknown as Record<string, unknown>)['onFixedLinkedChange'] = onFixedLinkedChange;
-(window as unknown as Record<string, unknown>)['onRadiusModeChange'] = onRadiusModeChange;
-(window as unknown as Record<string, unknown>)['onSmartLinkedChange'] = onSmartLinkedChange;
-(window as unknown as Record<string, unknown>)['doApply'] = doApply;
-(window as unknown as Record<string, unknown>)['doRefreshSelection'] = doRefreshSelection;
-(window as unknown as Record<string, unknown>)['doRefreshPage'] = doRefreshPage;
-(window as unknown as Record<string, unknown>)['doRemove'] = doRemove;
+const win = window as unknown as Record<string, unknown>;
+win['selectModel'] = selectModel;
+win['applyPreset'] = applyPreset;
+win['onFixedLinkedChange'] = onFixedLinkedChange;
+win['onRadiusModeChange'] = onRadiusModeChange;
+win['onSmartLinkedChange'] = onSmartLinkedChange;
+win['doApply'] = doApply;
+win['doRefreshSelection'] = doRefreshSelection;
+win['doRefreshPage'] = doRefreshPage;
+win['doRemove'] = doRemove;
 
 // Initial request
 send({ type: 'get-selection-status' });
