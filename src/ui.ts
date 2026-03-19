@@ -6,11 +6,372 @@ import { PRESETS, DEFAULT_CONSTRAINTS } from './models';
 
 let currentModel: ModelType = 'smartAdaptive';
 let currentPreset: PresetName | null = 'Balanced';
+let hasReceivedStatus = false;
+let lastStatusAt = 0;
+let lastHydratedManagedNodeId: string | null = null;
+let hasSupportedSelection = false;
+let statusMsgTimer: ReturnType<typeof setTimeout> | null = null;
+let liveApplyTimer: ReturnType<typeof setTimeout> | null = null;
+let managedSelectionCount = 0;
+let removeConfirmResolver: ((confirmed: boolean) => void) | null = null;
+let removeConfirmSkipPref = false;
+const PANEL_PREF_KEY_PREFIX = 'squircle-panel-collapsed-';
+type CollapsiblePanelId = 'mode' | 'settings' | 'constraints' | 'actions';
+const KNOWN_PREF_KEYS = [
+  `${PANEL_PREF_KEY_PREFIX}mode`,
+  `${PANEL_PREF_KEY_PREFIX}settings`,
+  `${PANEL_PREF_KEY_PREFIX}constraints`,
+  `${PANEL_PREF_KEY_PREFIX}actions`,
+] as const;
 
 // ─── Messaging ────────────────────────────────────────────────────────────────
 
 function send(msg: UIToPluginMessage): void {
   parent.postMessage({ pluginMessage: msg }, '*');
+}
+
+function updateBridgeIndicator(): void {
+  const el = document.getElementById('bridge-indicator') as HTMLElement;
+  if (!el) return;
+
+  if (!hasReceivedStatus) {
+    el.textContent = 'Bridge: UI script loaded, waiting for plugin...';
+    return;
+  }
+
+  const ageMs = Date.now() - lastStatusAt;
+  el.textContent = ageMs < 5000
+    ? `Bridge: connected (${Math.round(ageMs / 1000)}s ago)`
+    : `Bridge: stale (${Math.round(ageMs / 1000)}s since status)`;
+}
+
+function setEditableState(enabled: boolean): void {
+  hasSupportedSelection = enabled;
+
+  const sectionIds = ['mode-section', 'settings-section', 'constraints-section'];
+  for (const id of sectionIds) {
+    const section = document.getElementById(id) as HTMLElement | null;
+    if (!section) continue;
+    section.classList.toggle('section-disabled', !enabled);
+  }
+
+  const modeControls = [
+    'tab-fixed',
+    'tab-adaptive',
+    'tab-smartAdaptive',
+    'preset-subtle',
+    'preset-balanced',
+    'preset-bold',
+    'preset-pill-adaptive',
+  ];
+  for (const id of modeControls) {
+    const button = document.getElementById(id) as HTMLButtonElement | null;
+    if (button) button.disabled = !enabled;
+  }
+
+  const settingsRoot = document.getElementById('settings-section');
+  if (settingsRoot) {
+    settingsRoot.querySelectorAll('input, select, button, textarea').forEach((el) => {
+      (el as HTMLInputElement | HTMLSelectElement | HTMLButtonElement | HTMLTextAreaElement).disabled = !enabled;
+    });
+  }
+
+  const constraintsRoot = document.getElementById('constraints-section');
+  if (constraintsRoot) {
+    constraintsRoot.querySelectorAll('input, select, button, textarea').forEach((el) => {
+      (el as HTMLInputElement | HTMLSelectElement | HTMLButtonElement | HTMLTextAreaElement).disabled = !enabled;
+    });
+  }
+
+  const applyButton = document.getElementById('btn-apply') as HTMLButtonElement | null;
+  if (applyButton) applyButton.disabled = !enabled;
+  const refreshSelectionButton = document.getElementById('btn-refresh-sel') as HTMLButtonElement | null;
+  if (refreshSelectionButton) refreshSelectionButton.disabled = !enabled;
+}
+
+function setPanelPref(panelId: CollapsiblePanelId, collapsed: boolean): void {
+  try {
+    localStorage.setItem(`${PANEL_PREF_KEY_PREFIX}${panelId}`, collapsed ? 'true' : 'false');
+  } catch {
+    // Ignore storage errors and continue without persistence.
+  }
+}
+
+function getPanelPref(panelId: CollapsiblePanelId): boolean | null {
+  try {
+    const value = localStorage.getItem(`${PANEL_PREF_KEY_PREFIX}${panelId}`);
+    if (value === null) return null;
+    return value === 'true';
+  } catch {
+    return null;
+  }
+}
+
+function setPanelCollapsed(panelId: CollapsiblePanelId, collapsed: boolean, persist: boolean): void {
+  const section = document.getElementById(`${panelId}-section`) as HTMLElement | null;
+  const toggle = document.getElementById(`${panelId}-toggle`) as HTMLButtonElement | null;
+  if (!section || !toggle) return;
+
+  section.classList.toggle('collapsed', collapsed);
+  toggle.textContent = collapsed ? '+' : '-';
+  toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  toggle.setAttribute('aria-label', `${collapsed ? 'Expand' : 'Collapse'} ${panelId[0].toUpperCase()}${panelId.slice(1)}`);
+
+  if (persist) {
+    setPanelPref(panelId, collapsed);
+  }
+}
+
+function togglePanel(panelId: CollapsiblePanelId): void {
+  const section = document.getElementById(`${panelId}-section`) as HTMLElement | null;
+  if (!section) return;
+  const collapsed = !section.classList.contains('collapsed');
+  setPanelCollapsed(panelId, collapsed, true);
+}
+
+function loadPanelPrefs(): void {
+  const modePref = getPanelPref('mode');
+  const settingsPref = getPanelPref('settings');
+  const constraintsPref = getPanelPref('constraints');
+  const actionsPref = getPanelPref('actions');
+
+  setPanelCollapsed('mode', modePref ?? false, false);
+  setPanelCollapsed('settings', settingsPref ?? true, false);
+  setPanelCollapsed('constraints', constraintsPref ?? true, false);
+  setPanelCollapsed('actions', actionsPref ?? true, false);
+}
+
+function togglePrefsPanel(): void {
+  const panel = document.getElementById('prefs-panel') as HTMLElement;
+  panel.classList.toggle('hidden');
+}
+
+function reenableRemoveConfirmations(): void {
+  setSkipRemoveConfirm(false);
+  showStatusMsg('Remove confirmation dialogs re-enabled.', true);
+}
+
+function resetUserPreferences(): void {
+  try {
+    for (const key of KNOWN_PREF_KEYS) {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // Ignore storage errors and still refresh UI defaults.
+  }
+
+  loadPanelPrefs();
+  const prefsPanel = document.getElementById('prefs-panel') as HTMLElement;
+  prefsPanel.classList.add('hidden');
+  showStatusMsg('User preferences reset to defaults.', true);
+}
+
+function setSquirclifyViewState(supportedCount: number, managedCount: number): void {
+  const hasSelection = supportedCount > 0;
+  const hasManagedSelection = managedCount > 0;
+
+  const onboarding = document.getElementById('onboarding-section') as HTMLElement | null;
+  if (onboarding) onboarding.classList.toggle('hidden', !hasSelection || hasManagedSelection);
+
+  const configurableSections = [
+    'mode-section',
+    'settings-section',
+    'constraints-section',
+    'actions-section',
+  ];
+  for (const id of configurableSections) {
+    const section = document.getElementById(id) as HTMLElement | null;
+    if (!section) continue;
+    section.style.display = hasManagedSelection ? '' : 'none';
+  }
+
+  const chip = document.getElementById('badge-squirclified') as HTMLElement | null;
+  if (chip) {
+    chip.style.display = hasManagedSelection ? 'inline-flex' : 'none';
+    chip.innerHTML = `<span class="glyph">✦</span>Squirclified ${managedCount}`;
+  }
+
+  const removeBadge = document.getElementById('badge-remove') as HTMLButtonElement | null;
+  if (removeBadge) {
+    removeBadge.style.display = hasManagedSelection ? 'inline-block' : 'none';
+    removeBadge.disabled = !hasManagedSelection;
+  }
+
+  setEditableState(hasManagedSelection);
+}
+
+function scheduleLiveApply(immediate = false): void {
+  if (!hasSupportedSelection) return;
+
+  if (liveApplyTimer) {
+    clearTimeout(liveApplyTimer);
+    liveApplyTimer = null;
+  }
+
+  const run = (): void => {
+    const msg: UIToPluginMessage = {
+      type: 'apply-live',
+      model: currentModel,
+      preset: currentPreset,
+      settings: readSettings(),
+      constraints: readConstraints(),
+    };
+    send(msg);
+  };
+
+  if (immediate) {
+    run();
+    return;
+  }
+
+  liveApplyTimer = setTimeout(() => {
+    liveApplyTimer = null;
+    run();
+  }, 160);
+}
+
+function shouldTriggerLiveApplyFromEvent(event: Event): boolean {
+  const target = event.target;
+  if (!(target instanceof Element)) return false;
+  if (!target.closest('#mode-section, #settings-section, #constraints-section')) return false;
+
+  if (target instanceof HTMLInputElement && target.type === 'number') {
+    if (target.value.trim() === '' || target.validity.badInput) return false;
+  }
+
+  return true;
+}
+
+function bindLiveApplyTriggers(): void {
+  const roots = ['mode-section', 'settings-section', 'constraints-section'];
+  const events: Array<[string, boolean]> = [
+    ['keyup', true],
+    ['change', true],
+    ['mouseup', true],
+    ['touchend', true],
+  ];
+
+  for (const rootId of roots) {
+    const root = document.getElementById(rootId);
+    if (!root) continue;
+
+    for (const [eventName, useCapture] of events) {
+      root.addEventListener(eventName, (event) => {
+        if (!shouldTriggerLiveApplyFromEvent(event)) return;
+        scheduleLiveApply(false);
+      }, useCapture);
+    }
+  }
+}
+
+function getStepPrecision(step: number): number {
+  const text = String(step);
+  const idx = text.indexOf('.');
+  return idx >= 0 ? text.length - idx - 1 : 0;
+}
+
+function formatByStep(value: number, step: number): string {
+  const precision = getStepPrecision(step);
+  if (precision === 0) return String(Math.round(value));
+  return value.toFixed(precision);
+}
+
+function bindLabelDragControls(): void {
+  const rows = Array.from(document.querySelectorAll('.row'));
+  for (const row of rows) {
+    const label = row.querySelector('label') as HTMLLabelElement | null;
+    const input = row.querySelector('input[type="number"]') as HTMLInputElement | null;
+    if (!label || !input) continue;
+
+    label.classList.add('draggable-number-label');
+
+    label.addEventListener('mousedown', (downEvent: MouseEvent) => {
+      if (downEvent.button !== 0 || input.disabled || !hasSupportedSelection) return;
+
+      downEvent.preventDefault();
+      const startX = downEvent.clientX;
+      const initialValue = parseFloat(input.value) || 0;
+      const step = parseFloat(input.step || '1') || 1;
+      const min = input.min !== '' ? parseFloat(input.min) : Number.NEGATIVE_INFINITY;
+      const max = input.max !== '' ? parseFloat(input.max) : Number.POSITIVE_INFINITY;
+
+      const onMove = (moveEvent: MouseEvent): void => {
+        const deltaSteps = Math.trunc((moveEvent.clientX - startX) / 4);
+        let next = initialValue + (deltaSteps * step);
+        next = Math.min(max, Math.max(min, next));
+        input.value = formatByStep(next, step);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+
+      const onUp = (): void => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+}
+
+function handleIncomingMessage(event: MessageEvent): void {
+  const msg = (event.data?.pluginMessage ?? event.data) as PluginToUIMessage | undefined;
+  if (!msg) {
+    updateBridgeIndicator();
+    return;
+  }
+
+  hasReceivedStatus = true;
+  lastStatusAt = Date.now();
+  updateBridgeIndicator();
+
+  switch (msg.type) {
+    case 'selection-status': {
+      const { supportedCount, managedCount, unsupportedCount, firstManagedData, firstManagedNodeId } = msg.status;
+      const hint = document.getElementById('empty-hint') as HTMLElement;
+      const badgeSupported = document.getElementById('badge-supported') as HTMLElement;
+      const badgeUnsupported = document.getElementById('badge-unsupported') as HTMLElement;
+
+      badgeSupported.textContent = `${supportedCount} frame${supportedCount !== 1 ? 's' : ''}`;
+      badgeUnsupported.textContent = `${unsupportedCount} unsupported`;
+      badgeUnsupported.style.display = unsupportedCount > 0 ? 'inline-block' : 'none';
+      managedSelectionCount = managedCount;
+
+      hint.style.display = supportedCount === 0 ? 'block' : 'none';
+      setSquirclifyViewState(supportedCount, managedCount);
+
+      // Load settings from first managed frame
+      if (firstManagedData && firstManagedNodeId && firstManagedNodeId !== lastHydratedManagedNodeId) {
+        currentModel = firstManagedData.model;
+        currentPreset = firstManagedData.preset;
+        loadSettingsIntoUI(firstManagedData.model, firstManagedData.settings);
+        updateModelUI();
+        if (firstManagedData.preset) updatePresetActive(firstManagedData.preset);
+        lastHydratedManagedNodeId = firstManagedNodeId;
+      }
+
+      if (!firstManagedNodeId) {
+        lastHydratedManagedNodeId = null;
+      }
+      break;
+    }
+    case 'action-result': {
+      showStatusMsg(msg.message, msg.success);
+      // Refresh selection status after action
+      send({ type: 'get-selection-status' });
+      break;
+    }
+    case 'live-update': {
+      const indicator = document.getElementById('live-indicator') as HTMLElement;
+      indicator.textContent = `Live: monitoring ${msg.managedCount} frame${msg.managedCount !== 1 ? 's' : ''}`;
+      break;
+    }
+    case 'remove-confirm-skip-pref': {
+      removeConfirmSkipPref = msg.skip;
+      break;
+    }
+  }
 }
 
 // ─── Model / Preset selection ─────────────────────────────────────────────────
@@ -20,6 +381,7 @@ function selectModel(model: ModelType): void {
   currentPreset = null;
   updateModelUI();
   clearPresetActive();
+  scheduleLiveApply(false);
 }
 
 function applyPreset(name: PresetName): void {
@@ -29,6 +391,7 @@ function applyPreset(name: PresetName): void {
   loadSettingsIntoUI(preset.model, preset.settings as NodePluginData['settings']);
   updateModelUI();
   updatePresetActive(name);
+  scheduleLiveApply(true);
 }
 
 function updateModelUI(): void {
@@ -50,6 +413,36 @@ function updatePresetActive(name: PresetName): void {
   document.querySelectorAll('.preset-btn').forEach((el) => {
     if (el.textContent?.trim() === name) el.classList.add('active');
   });
+}
+
+function bindUIEvents(): void {
+  (document.getElementById('tab-fixed') as HTMLButtonElement).addEventListener('click', () => selectModel('fixed'));
+  (document.getElementById('tab-adaptive') as HTMLButtonElement).addEventListener('click', () => selectModel('adaptive'));
+  (document.getElementById('tab-smartAdaptive') as HTMLButtonElement).addEventListener('click', () => selectModel('smartAdaptive'));
+
+  (document.getElementById('preset-subtle') as HTMLButtonElement).addEventListener('click', () => applyPreset('Subtle'));
+  (document.getElementById('preset-balanced') as HTMLButtonElement).addEventListener('click', () => applyPreset('Balanced'));
+  (document.getElementById('preset-bold') as HTMLButtonElement).addEventListener('click', () => applyPreset('Bold'));
+  (document.getElementById('preset-pill-adaptive') as HTMLButtonElement).addEventListener('click', () => applyPreset('Pill Adaptive'));
+
+  (document.getElementById('fixed-linked') as HTMLInputElement).addEventListener('change', onFixedLinkedChange);
+  (document.getElementById('fixed-radius-mode') as HTMLSelectElement).addEventListener('change', onRadiusModeChange);
+  (document.getElementById('smart-linked') as HTMLInputElement).addEventListener('change', onSmartLinkedChange);
+
+  (document.getElementById('btn-apply') as HTMLButtonElement).addEventListener('click', doApply);
+  (document.getElementById('btn-squirclify-cta') as HTMLButtonElement).addEventListener('click', doApply);
+  (document.getElementById('btn-refresh-sel') as HTMLButtonElement).addEventListener('click', doRefreshSelection);
+  (document.getElementById('btn-refresh-page') as HTMLButtonElement).addEventListener('click', doRefreshPage);
+  (document.getElementById('badge-remove') as HTMLButtonElement).addEventListener('click', doRemove);
+  (document.getElementById('mode-toggle') as HTMLButtonElement).addEventListener('click', () => togglePanel('mode'));
+  (document.getElementById('settings-toggle') as HTMLButtonElement).addEventListener('click', () => togglePanel('settings'));
+  (document.getElementById('constraints-toggle') as HTMLButtonElement).addEventListener('click', () => togglePanel('constraints'));
+  (document.getElementById('actions-toggle') as HTMLButtonElement).addEventListener('click', () => togglePanel('actions'));
+  (document.getElementById('remove-confirm-cancel') as HTMLButtonElement).addEventListener('click', () => resolveInlineRemoveConfirm(false));
+  (document.getElementById('remove-confirm-continue') as HTMLButtonElement).addEventListener('click', () => resolveInlineRemoveConfirm(true));
+  (document.getElementById('prefs-link') as HTMLButtonElement).addEventListener('click', togglePrefsPanel);
+  (document.getElementById('prefs-reenable-remove') as HTMLButtonElement).addEventListener('click', reenableRemoveConfirmations);
+  (document.getElementById('prefs-reset-all') as HTMLButtonElement).addEventListener('click', resetUserPreferences);
 }
 
 // ─── Read settings from UI ────────────────────────────────────────────────────
@@ -222,73 +615,99 @@ function doRefreshPage(): void {
 }
 
 function doRemove(): void {
-  send({ type: 'remove-management' });
+  if (managedSelectionCount <= 0) {
+    send({ type: 'remove-management' });
+    return;
+  }
+
+  if (shouldSkipRemoveConfirm()) {
+    send({ type: 'remove-management' });
+    return;
+  }
+
+  const affected = `${managedSelectionCount} selected managed frame${managedSelectionCount !== 1 ? 's' : ''}`;
+  openInlineRemoveConfirm(affected).then((confirmed) => {
+    if (!confirmed) return;
+    send({ type: 'remove-management' });
+  });
+}
+
+function shouldSkipRemoveConfirm(): boolean {
+  return removeConfirmSkipPref;
+}
+
+function setSkipRemoveConfirm(skip: boolean): void {
+  removeConfirmSkipPref = skip;
+  send({ type: 'set-remove-confirm-skip-pref', skip });
+}
+
+function openInlineRemoveConfirm(affectedSummary: string): Promise<boolean> {
+  const panel = document.getElementById('remove-confirm-panel') as HTMLElement;
+  const title = document.getElementById('remove-confirm-title') as HTMLElement;
+  const skipCheck = document.getElementById('remove-confirm-skip') as HTMLInputElement;
+
+  title.textContent = `Remove management from ${affectedSummary}?`;
+  skipCheck.checked = false;
+  panel.classList.remove('hidden');
+  document.body.classList.add('remove-confirm-open');
+
+  return new Promise((resolve) => {
+    removeConfirmResolver = resolve;
+  });
+}
+
+function resolveInlineRemoveConfirm(confirmed: boolean): void {
+  const panel = document.getElementById('remove-confirm-panel') as HTMLElement;
+  const skipCheck = document.getElementById('remove-confirm-skip') as HTMLInputElement;
+
+  panel.classList.add('hidden');
+  document.body.classList.remove('remove-confirm-open');
+
+  if (confirmed && skipCheck.checked) {
+    setSkipRemoveConfirm(true);
+  }
+
+  const resolver = removeConfirmResolver;
+  removeConfirmResolver = null;
+  if (resolver) resolver(confirmed);
 }
 
 function showStatusMsg(text: string, success: boolean): void {
   const el = document.getElementById('status-msg') as HTMLElement;
+  if (statusMsgTimer) {
+    clearTimeout(statusMsgTimer);
+    statusMsgTimer = null;
+  }
   el.textContent = text;
   el.className = `status-msg ${success ? 'success' : 'error'}`;
-  setTimeout(() => { el.className = 'status-msg hidden'; }, 4000);
+  statusMsgTimer = setTimeout(() => {
+    el.className = 'status-msg hidden';
+    statusMsgTimer = null;
+  }, 4000);
 }
 
 // ─── Plugin messages ──────────────────────────────────────────────────────────
 
-window.onmessage = (event: MessageEvent) => {
-  const msg = event.data.pluginMessage as PluginToUIMessage;
-  if (!msg) return;
+window.addEventListener('message', handleIncomingMessage);
+window.onmessage = handleIncomingMessage;
 
-  switch (msg.type) {
-    case 'selection-status': {
-      const { supportedCount, managedCount, unsupportedCount, firstManagedData } = msg.status;
-      const hint = document.getElementById('empty-hint') as HTMLElement;
-      const badgeSupported = document.getElementById('badge-supported') as HTMLElement;
-      const badgeManaged = document.getElementById('badge-managed') as HTMLElement;
-      const badgeUnsupported = document.getElementById('badge-unsupported') as HTMLElement;
-
-      badgeSupported.textContent = `${supportedCount} frame${supportedCount !== 1 ? 's' : ''}`;
-      badgeManaged.textContent = `${managedCount} managed`;
-      badgeManaged.style.display = managedCount > 0 ? 'inline-block' : 'none';
-      badgeUnsupported.textContent = `${unsupportedCount} unsupported`;
-      badgeUnsupported.style.display = unsupportedCount > 0 ? 'inline-block' : 'none';
-
-      hint.style.display = supportedCount === 0 ? 'block' : 'none';
-
-      // Load settings from first managed frame
-      if (firstManagedData) {
-        currentModel = firstManagedData.model;
-        currentPreset = firstManagedData.preset;
-        loadSettingsIntoUI(firstManagedData.model, firstManagedData.settings);
-        updateModelUI();
-        if (firstManagedData.preset) updatePresetActive(firstManagedData.preset);
-      }
-      break;
-    }
-    case 'action-result': {
-      showStatusMsg(msg.message, msg.success);
-      // Refresh selection status after action
-      send({ type: 'get-selection-status' });
-      break;
-    }
-    case 'live-update': {
-      const indicator = document.getElementById('live-indicator') as HTMLElement;
-      indicator.textContent = `Live: monitoring ${msg.managedCount} frame${msg.managedCount !== 1 ? 's' : ''}`;
-      break;
-    }
-  }
-};
-
-// Make functions available globally for inline HTML onclick handlers
-const win = window as unknown as Record<string, unknown>;
-win['selectModel'] = selectModel;
-win['applyPreset'] = applyPreset;
-win['onFixedLinkedChange'] = onFixedLinkedChange;
-win['onRadiusModeChange'] = onRadiusModeChange;
-win['onSmartLinkedChange'] = onSmartLinkedChange;
-win['doApply'] = doApply;
-win['doRefreshSelection'] = doRefreshSelection;
-win['doRefreshPage'] = doRefreshPage;
-win['doRemove'] = doRemove;
+bindUIEvents();
+loadPanelPrefs();
+bindLabelDragControls();
+bindLiveApplyTriggers();
+updateModelUI();
+onFixedLinkedChange();
+onRadiusModeChange();
+onSmartLinkedChange();
+setSquirclifyViewState(0, 0);
+updateBridgeIndicator();
 
 // Initial request
 send({ type: 'get-selection-status' });
+send({ type: 'get-remove-confirm-skip-pref' });
+
+// Keep requesting status until plugin responds, and continue occasional sync requests.
+setInterval(() => {
+  send({ type: 'get-selection-status' });
+  updateBridgeIndicator();
+}, 1000);

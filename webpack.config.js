@@ -51,7 +51,12 @@ module.exports = (env, argv) => {
         new HtmlWebpackPlugin({
           template: './src/ui.html',
           filename: 'ui.html',
-          inject: 'body',
+          inject: false,
+          templateParameters: (compilation) => ({
+            inlineUiScript: compilation.assets['ui.js']
+              ? compilation.assets['ui.js'].source().toString()
+              : '',
+          }),
         }),
       ],
       devtool: isDev ? 'inline-source-map' : false,

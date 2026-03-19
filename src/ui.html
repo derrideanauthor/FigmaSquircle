@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Squircle Frame</title>
+  <title>Squirclify!</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -12,8 +12,79 @@
       color: var(--figma-color-text, #1a1a1a);
       background: var(--figma-color-bg, #ffffff);
       padding: 12px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
     }
+    .main-content { display: block; }
+    .status-footer { margin-top: auto; padding-top: 8px; }
     h3 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--figma-color-text-secondary, #888); margin-bottom: 8px; }
+    .heading-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+    .heading-row h3 { margin-bottom: 0; }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .panel-header .heading-row { margin-bottom: 0; }
+    .panel-toggle {
+      width: 20px;
+      height: 20px;
+      border-radius: 4px;
+      border: 1px solid var(--figma-color-border, #ddd);
+      background: var(--figma-color-bg, #fff);
+      color: var(--figma-color-text-secondary, #666);
+      font-size: 11px;
+      line-height: 1;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .panel-content { display: block; }
+    .collapsible-panel.collapsed .panel-content { display: none; }
+    .help-wrap { position: relative; display: inline-flex; align-items: center; }
+    .help-icon {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 1px solid var(--figma-color-border, #cfcfcf);
+      background: var(--figma-color-bg, #fff);
+      color: var(--figma-color-text-secondary, #777);
+      font-size: 10px;
+      line-height: 1;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: help;
+      padding: 0;
+    }
+    .help-tooltip {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      width: 210px;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid var(--figma-color-border, #ddd);
+      background: var(--figma-color-bg, #fff);
+      color: var(--figma-color-text, #1a1a1a);
+      font-size: 11px;
+      line-height: 1.35;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .help-wrap:hover .help-tooltip,
+    .help-wrap:focus-within .help-tooltip {
+      opacity: 1;
+      visibility: visible;
+    }
     section { margin-bottom: 16px; }
     .status-badge { display: inline-flex; gap: 4px; flex-wrap: wrap; }
     .badge {
@@ -26,9 +97,28 @@
     }
     .badge.managed { background: #e6f4ea; color: #1a7d35; }
     .badge.unsupported { background: #fce8e6; color: #c0392b; }
+    .badge.squirclified-chip {
+      background: #a700ff;
+      color: #fff;
+      border: 1px solid #d16dff;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .badge.squirclified-chip .glyph { margin-right: 4px; }
+    .badge-remove {
+      border: 1px solid var(--figma-color-border, #ddd);
+      background: var(--figma-color-bg-secondary, #f5f5f5);
+      color: var(--figma-color-text-secondary, #666);
+      cursor: pointer;
+    }
+    .badge-remove:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
     .empty-hint { color: var(--figma-color-text-secondary, #999); font-size: 12px; padding: 8px 0; }
     .row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
     .row label { flex: 1; }
+    .row label.draggable-number-label { cursor: ew-resize; user-select: none; }
     .row input[type="number"], .row select, .row input[type="text"] {
       width: 80px;
       padding: 4px 6px;
@@ -37,6 +127,15 @@
       background: var(--figma-color-bg, #fff);
       color: var(--figma-color-text, #1a1a1a);
       font-size: 12px;
+    }
+    .row input[type="number"] {
+      appearance: textfield;
+      -moz-appearance: textfield;
+    }
+    .row input[type="number"]::-webkit-outer-spin-button,
+    .row input[type="number"]::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
     }
     .row input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; }
     .corner-grid {
@@ -73,12 +172,67 @@
       padding: 6px 8px;
       border-radius: 4px;
       font-size: 11px;
-      margin-bottom: 8px;
+      min-height: 28px;
     }
+    .status-slot { min-height: 28px; margin-bottom: 8px; }
     .status-msg.success { background: #e6f4ea; color: #1a7d35; }
     .status-msg.error { background: #fce8e6; color: #c0392b; }
-    .status-msg.hidden { display: none; }
+    .status-msg.hidden { visibility: hidden; }
     .live-indicator { font-size: 10px; color: var(--figma-color-text-secondary, #888); margin-top: 4px; }
+    .prefs-link {
+      margin-top: 6px;
+      font-size: 10px;
+      color: var(--figma-color-text-tertiary, #999);
+      text-decoration: underline;
+      background: none;
+      border: none;
+      padding: 0;
+      cursor: pointer;
+      align-self: flex-start;
+    }
+    .prefs-panel {
+      margin-top: 6px;
+      padding: 8px;
+      border: 1px solid var(--figma-color-border, #ddd);
+      border-radius: 6px;
+      background: var(--figma-color-bg-secondary, #f7f7f7);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .prefs-panel.hidden { display: none; }
+    .prefs-btn {
+      width: 100%;
+      text-align: left;
+      padding: 6px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--figma-color-border, #ddd);
+      background: var(--figma-color-bg, #fff);
+      color: var(--figma-color-text, #333);
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .section-disabled { opacity: 0.45; }
+    .onboarding {
+      border: 1px dashed var(--figma-color-border, #ddd);
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 12px;
+      background: linear-gradient(180deg, rgba(167, 0, 255, 0.08) 0%, rgba(167, 0, 255, 0.02) 100%);
+    }
+    .onboarding.hidden { display: none; }
+    .onboarding-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--figma-color-text, #111);
+      margin-bottom: 4px;
+    }
+    .onboarding-copy {
+      font-size: 11px;
+      color: var(--figma-color-text-secondary, #666);
+      margin-bottom: 8px;
+      line-height: 1.35;
+    }
     .preset-row { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
     .preset-btn {
       padding: 4px 8px;
@@ -91,53 +245,164 @@
     .preset-btn.active { background: var(--figma-color-bg-brand, #0d99ff); color: #fff; border-color: transparent; }
     details summary { cursor: pointer; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--figma-color-text-secondary, #888); margin-bottom: 6px; }
     details[open] summary { margin-bottom: 8px; }
+    .confirm-panel {
+      border: 1px solid var(--figma-color-border, #ddd);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      background: linear-gradient(90deg, rgba(167, 0, 255, 0.08), rgba(13, 153, 255, 0.05));
+      padding: 8px 10px;
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: calc(100% - 24px);
+      max-width: 320px;
+      z-index: 120;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    }
+    .confirm-panel.hidden { display: none; }
+    body.remove-confirm-open #status-section,
+    body.remove-confirm-open #mode-section,
+    body.remove-confirm-open #settings-section,
+    body.remove-confirm-open #constraints-section,
+    body.remove-confirm-open #actions-section {
+      display: none;
+    }
+    .confirm-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--figma-color-text, #1a1a1a);
+      margin-bottom: 4px;
+    }
+    .confirm-copy {
+      font-size: 11px;
+      line-height: 1.35;
+      color: var(--figma-color-text-secondary, #666);
+      margin-bottom: 8px;
+    }
+    .confirm-check {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      margin-bottom: 8px;
+      color: var(--figma-color-text, #333);
+      user-select: none;
+    }
+    .confirm-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .btn-ghost {
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--figma-color-border, #ddd);
+      background: var(--figma-color-bg, #fff);
+      color: var(--figma-color-text, #333);
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .btn-danger-soft {
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid #d16dff;
+      background: #a700ff;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
 
+<div class="main-content" id="main-content">
 <!-- Selection Status -->
 <section id="status-section">
   <h3>Selection</h3>
   <div class="status-badge" id="status-badges">
     <span class="badge" id="badge-supported">0 frames</span>
-    <span class="badge managed" id="badge-managed" style="display:none">0 managed</span>
+    <span class="badge squirclified-chip" id="badge-squirclified" style="display:none"><span class="glyph">✦</span>Squirclified</span>
+    <button class="badge badge-remove" id="badge-remove" style="display:none" type="button">Remove</button>
     <span class="badge unsupported" id="badge-unsupported" style="display:none">0 unsupported</span>
   </div>
   <p class="empty-hint" id="empty-hint">Select one or more frames to begin.</p>
 </section>
 
+<section class="onboarding hidden" id="onboarding-section">
+  <p class="onboarding-title">This frame is not squirclified yet.</p>
+  <p class="onboarding-copy">Apply the default squircle profile now, then fine tune with Mode and Settings.</p>
+  <button class="action primary" id="btn-squirclify-cta">Squirclify!</button>
+</section>
+
 <!-- Action result message -->
-<div class="status-msg hidden" id="status-msg"></div>
+<div class="status-slot">
+  <div class="status-msg hidden" id="status-msg"></div>
+</div>
+
+<div class="confirm-panel hidden" id="remove-confirm-panel">
+  <div class="confirm-title" id="remove-confirm-title">Remove Squircle Management</div>
+  <div class="confirm-copy" id="remove-confirm-copy">Corners keep their current shape, but resize updates will stop until you squirclify again.</div>
+  <label class="confirm-check">
+    <input type="checkbox" id="remove-confirm-skip" />
+    <span>Don't ask again</span>
+  </label>
+  <div class="confirm-actions">
+    <button type="button" class="btn-ghost" id="remove-confirm-cancel">Cancel</button>
+    <button type="button" class="btn-danger-soft" id="remove-confirm-continue">Remove</button>
+  </div>
+</div>
 
 <!-- Model / Preset Tabs -->
-<section>
-  <h3>Mode</h3>
-  <div class="tab-row">
-    <button class="tab" id="tab-fixed" onclick="selectModel('fixed')">Fixed</button>
-    <button class="tab" id="tab-adaptive" onclick="selectModel('adaptive')">Adaptive</button>
-    <button class="tab active" id="tab-smartAdaptive" onclick="selectModel('smartAdaptive')">Smart</button>
+<section id="mode-section" class="collapsible-panel">
+  <div class="panel-header">
+    <div class="heading-row">
+      <h3>Mode</h3>
+      <span class="help-wrap">
+        <button type="button" class="help-icon" aria-label="Mode help">?</button>
+        <span class="help-tooltip">
+          Fixed: keep a chosen radius style.<br />
+          Adaptive: radius responds to current size.<br />
+          Smart: blends design radius with adaptive scaling.
+        </span>
+      </span>
+    </div>
+    <button type="button" class="panel-toggle" id="mode-toggle" aria-label="Collapse Mode" aria-expanded="true">-</button>
   </div>
-  <div class="preset-row" id="preset-row">
-    <button class="preset-btn" onclick="applyPreset('Subtle')">Subtle</button>
-    <button class="preset-btn active" onclick="applyPreset('Balanced')">Balanced</button>
-    <button class="preset-btn" onclick="applyPreset('Bold')">Bold</button>
-    <button class="preset-btn" onclick="applyPreset('Pill Adaptive')">Pill Adaptive</button>
+  <div class="panel-content" id="mode-content">
+    <div class="tab-row">
+      <button class="tab" id="tab-fixed">Fixed</button>
+      <button class="tab" id="tab-adaptive">Adaptive</button>
+      <button class="tab active" id="tab-smartAdaptive">Smart</button>
+    </div>
+    <div class="preset-row" id="preset-row">
+      <button class="preset-btn" id="preset-subtle">Subtle</button>
+      <button class="preset-btn active" id="preset-balanced">Balanced</button>
+      <button class="preset-btn" id="preset-bold">Bold</button>
+      <button class="preset-btn" id="preset-pill-adaptive">Pill Adaptive</button>
+    </div>
   </div>
 </section>
 
 <!-- Settings Panels -->
-<section>
-  <h3>Settings</h3>
+<section id="settings-section" class="collapsible-panel">
+  <div class="panel-header">
+    <h3>Settings</h3>
+    <button type="button" class="panel-toggle" id="settings-toggle" aria-label="Collapse Settings" aria-expanded="true">-</button>
+  </div>
+
+  <div class="panel-content" id="settings-content">
 
   <!-- Fixed Settings -->
   <div id="panel-fixed" style="display:none">
     <div class="row">
       <label>Linked corners</label>
-      <input type="checkbox" id="fixed-linked" checked onchange="onFixedLinkedChange()" />
+      <input type="checkbox" id="fixed-linked" checked />
     </div>
     <div class="row">
       <label>Radius mode</label>
-      <select id="fixed-radius-mode" onchange="onRadiusModeChange()">
+      <select id="fixed-radius-mode">
         <option value="absolute">Absolute</option>
         <option value="proportional">Proportional</option>
       </select>
@@ -194,7 +459,7 @@
   <div id="panel-smartAdaptive">
     <div class="row">
       <label>Linked corners</label>
-      <input type="checkbox" id="smart-linked" checked onchange="onSmartLinkedChange()" />
+      <input type="checkbox" id="smart-linked" checked />
     </div>
     <div id="smart-single-row" class="row">
       <label>Design radius</label>
@@ -226,30 +491,51 @@
       <input type="number" id="smart-aspect" value="0.15" min="0" step="0.01" />
     </div>
   </div>
+</div>
 </section>
 
 <!-- Advanced Constraints -->
-<details>
-  <summary>Advanced Constraints</summary>
-  <div class="row"><label>Min radius</label><input type="number" id="c-min-r" value="2" min="0" step="1" /></div>
-  <div class="row"><label>Max radius</label><input type="number" id="c-max-r" value="999" min="0" step="1" /></div>
-  <div class="row"><label>Min smoothing</label><input type="number" id="c-min-s" value="0" min="0" max="0.95" step="0.01" /></div>
-  <div class="row"><label>Max smoothing</label><input type="number" id="c-max-s" value="0.95" min="0" max="0.95" step="0.01" /></div>
-  <div class="row"><label>Min frame size</label><input type="number" id="c-min-f" value="16" min="0" step="1" /></div>
-  <div class="row"><label>Aspect guard</label><input type="number" id="c-aspect" value="6" min="1" step="0.1" /></div>
-</details>
-
-<!-- Actions -->
-<section style="margin-top:16px">
-  <h3>Actions</h3>
-  <button class="action primary" id="btn-apply" onclick="doApply()">Apply to Selection</button>
-  <button class="action" id="btn-refresh-sel" onclick="doRefreshSelection()">Refresh Managed in Selection</button>
-  <button class="action" id="btn-refresh-page" onclick="doRefreshPage()">Refresh Managed on Page</button>
-  <button class="action danger" id="btn-remove" onclick="doRemove()">Remove Management</button>
+<section id="constraints-section" class="collapsible-panel">
+  <div class="panel-header">
+    <h3>Advanced Constraints</h3>
+    <button type="button" class="panel-toggle" id="constraints-toggle" aria-label="Collapse Advanced Constraints" aria-expanded="true">-</button>
+  </div>
+  <div class="panel-content" id="constraints-content">
+    <div class="row"><label>Min radius</label><input type="number" id="c-min-r" value="2" min="0" step="1" /></div>
+    <div class="row"><label>Max radius</label><input type="number" id="c-max-r" value="999" min="0" step="1" /></div>
+    <div class="row"><label>Min smoothing</label><input type="number" id="c-min-s" value="0" min="0" max="0.95" step="0.01" /></div>
+    <div class="row"><label>Max smoothing</label><input type="number" id="c-max-s" value="0.95" min="0" max="0.95" step="0.01" /></div>
+    <div class="row"><label>Min frame size</label><input type="number" id="c-min-f" value="16" min="0" step="1" /></div>
+    <div class="row"><label>Aspect guard</label><input type="number" id="c-aspect" value="6" min="1" step="0.1" /></div>
+  </div>
 </section>
 
+<!-- Actions -->
+<section id="actions-section" class="collapsible-panel" style="margin-top:16px">
+  <div class="panel-header">
+    <h3>Actions</h3>
+    <button type="button" class="panel-toggle" id="actions-toggle" aria-label="Collapse Actions" aria-expanded="true">-</button>
+  </div>
+  <div class="panel-content" id="actions-content">
+    <button class="action primary" id="btn-apply">Apply to Selection</button>
+    <button class="action" id="btn-refresh-sel">Refresh Managed in Selection</button>
+    <button class="action" id="btn-refresh-page">Refresh Managed on Page</button>
+  </div>
+</section>
+</div>
+
 <!-- Live status -->
-<div class="live-indicator" id="live-indicator">Live: monitoring 0 frames</div>
+<div class="status-footer" id="status-footer">
+  <div class="live-indicator" id="live-indicator">Live: monitoring 0 frames</div>
+  <div class="live-indicator" id="bridge-indicator">Bridge: HTML loaded (waiting for UI script)</div>
+  <button type="button" class="prefs-link" id="prefs-link">preferences</button>
+  <div class="prefs-panel hidden" id="prefs-panel">
+    <button type="button" class="prefs-btn" id="prefs-reenable-remove">Re-enable remove confirmations</button>
+    <button type="button" class="prefs-btn" id="prefs-reset-all">Reset user preferences</button>
+  </div>
+</div>
+
+<script><%= inlineUiScript %></script>
 
 </body>
 </html>

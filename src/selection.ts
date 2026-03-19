@@ -7,6 +7,15 @@ export function isSupportedNode(node: SceneNode): node is FrameNode {
   return node.type === 'FRAME';
 }
 
+function nearestSupportedAncestor(node: BaseNode | null): FrameNode | null {
+  let current: BaseNode | null = node;
+  while (current) {
+    if (current.type === 'FRAME') return current;
+    current = current.parent;
+  }
+  return null;
+}
+
 /** Returns true if a node is managed (has valid plugin data). */
 export function isManagedNode(node: SceneNode): boolean {
   if (!isSupportedNode(node)) return false;
@@ -15,7 +24,16 @@ export function isManagedNode(node: SceneNode): boolean {
 
 /** Filter the current selection to only supported nodes. */
 export function getSupportedNodes(nodes: readonly SceneNode[]): FrameNode[] {
-  return nodes.filter(isSupportedNode);
+  const supportedById = new Map<string, FrameNode>();
+
+  for (const node of nodes) {
+    const resolved = isSupportedNode(node) ? node : nearestSupportedAncestor(node);
+    if (resolved) {
+      supportedById.set(resolved.id, resolved);
+    }
+  }
+
+  return Array.from(supportedById.values());
 }
 
 /** Filter the current selection to only managed nodes. */
@@ -27,10 +45,15 @@ export function getManagedNodes(nodes: readonly SceneNode[]): Array<FrameNode & 
 export function getSelectionStatus(nodes: readonly SceneNode[]): SelectionStatus {
   const supported = getSupportedNodes(nodes);
   const managed = supported.filter((n) => isManagedNode(n));
-  const unsupportedCount = nodes.length - supported.length;
+  const unsupportedCount = nodes.filter((node) => {
+    const resolved = isSupportedNode(node) ? node : nearestSupportedAncestor(node);
+    return resolved === null;
+  }).length;
 
   let firstManagedData: NodePluginData | null = null;
+  let firstManagedNodeId: string | null = null;
   if (managed.length > 0) {
+    firstManagedNodeId = managed[0].id;
     firstManagedData = readNodeData(managed[0]);
   }
 
@@ -39,6 +62,7 @@ export function getSelectionStatus(nodes: readonly SceneNode[]): SelectionStatus
     managedCount: managed.length,
     unsupportedCount,
     firstManagedData,
+    firstManagedNodeId,
   };
 }
 

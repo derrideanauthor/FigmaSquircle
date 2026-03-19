@@ -1,4 +1,4 @@
-// Core domain types for Squircle Frame plugin
+// Core domain types for Squirclify! plugin
 
 export type ModelType = 'fixed' | 'adaptive' | 'smartAdaptive';
 export type PresetName = 'Subtle' | 'Balanced' | 'Bold' | 'Pill Adaptive';
@@ -101,16 +101,22 @@ export interface SelectionStatus {
   unsupportedCount: number;
   /** Settings from the first managed frame (for UI pre-fill) */
   firstManagedData: NodePluginData | null;
+  /** Node id for firstManagedData to avoid redundant UI rehydration on polling updates. */
+  firstManagedNodeId: string | null;
 }
 
 export type UIToPluginMessage =
   | { type: 'apply'; model: ModelType; preset: PresetName | null; settings: ModelSettings; constraints: ConstraintParams }
+  | { type: 'apply-live'; model: ModelType; preset: PresetName | null; settings: ModelSettings; constraints: ConstraintParams }
   | { type: 'refresh-selection' }
   | { type: 'refresh-page' }
   | { type: 'remove-management' }
+  | { type: 'get-remove-confirm-skip-pref' }
+  | { type: 'set-remove-confirm-skip-pref'; skip: boolean }
   | { type: 'get-selection-status' };
 
 export type PluginToUIMessage =
   | { type: 'selection-status'; status: SelectionStatus }
   | { type: 'action-result'; success: boolean; message: string }
-  | { type: 'live-update'; managedCount: number };
+  | { type: 'live-update'; managedCount: number }
+  | { type: 'remove-confirm-skip-pref'; skip: boolean };

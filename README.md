@@ -1,4 +1,4 @@
-# Squircle Frame – Figma Plugin
+# Squirclify! – Figma Plugin
 
 A Figma plugin that applies persistent, intelligent squircle corner behaviour to frames using native corner radius and corner smoothing.
 
@@ -10,7 +10,7 @@ Figma has corner smoothing, but lacks a system for:
 - storing reusable squircle behaviour on frames
 - refreshing those behaviours after the plugin is closed
 
-Squircle Frame solves this by storing compute models and parameters on each managed frame as plugin data, then applying and recalculating corner radius + smoothing automatically.
+Squirclify! solves this by storing compute models and parameters on each managed frame as plugin data, then applying and recalculating corner radius + smoothing automatically.
 
 ## V1 Scope and Limitations
 
